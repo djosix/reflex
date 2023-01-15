@@ -148,11 +148,11 @@ func (r *Reflex) filterMatching(out chan<- string, in <-chan string) {
 
 // batch receives file notification events and batches them up. It's a bit
 // tricky, but here's what it accomplishes:
-// * When we initially get a message, wait a bit and batch messages before
-//   trying to send anything. This is because the file events come in bursts.
-// * Once it's time to send, don't do it until the out channel is unblocked.
-//   In the meantime, keep batching. When we've sent off all the batched
-//   messages, go back to the beginning.
+//   - When we initially get a message, wait a bit and batch messages before
+//     trying to send anything. This is because the file events come in bursts.
+//   - Once it's time to send, don't do it until the out channel is unblocked.
+//     In the meantime, keep batching. When we've sent off all the batched
+//     messages, go back to the beginning.
 func (r *Reflex) batch(out chan<- string, in <-chan string) {
 
 	const silenceInterval = 300 * time.Millisecond
@@ -190,15 +190,23 @@ func (r *Reflex) batch(out chan<- string, in <-chan string) {
 // passed line-by-line to the stdout chan.
 func (r *Reflex) runEach(names <-chan string) {
 	for name := range names {
+		command := replaceSubSymbol(r.command, r.subSymbol, name)
 		if r.startService {
 			if r.Running() {
-				infoPrintln(r.id, "Killing service")
+				if verbose || printActions {
+					infoPrintln(r.id, "Terminate", command)
+				}
 				r.terminate()
 			}
-			infoPrintln(r.id, "Starting service")
-			r.runCommand(name, stdout)
+			if verbose || printActions {
+				infoPrintln(r.id, "Run", command)
+			}
+			r.runCommand(command, stdout)
 		} else {
-			r.runCommand(name, stdout)
+			if verbose || printActions {
+				infoPrintln(r.id, "Run", command)
+			}
+			r.runCommand(command, stdout)
 			<-r.done
 			r.mu.Lock()
 			r.running = false
@@ -223,17 +231,21 @@ func (r *Reflex) terminate() {
 		case <-r.done:
 			return
 		case <-timer.C:
-			if sig == syscall.SIGINT {
-				infoPrintln(r.id, "Sending SIGINT signal...")
-			} else {
-				infoPrintln(r.id, "Sending SIGKILL signal...")
+			if verbose {
+				if sig == syscall.SIGINT {
+					infoPrintln(r.id, "Sending SIGINT signal...")
+				} else {
+					infoPrintln(r.id, "Sending SIGKILL signal...")
+				}
 			}
 
 			// Instead of killing the process, we want to kill its
 			// whole pgroup in order to clean up any children the
 			// process may have created.
 			if err := syscall.Kill(-1*r.cmd.Process.Pid, sig); err != nil {
-				infoPrintln(r.id, "Error killing:", err)
+				if verbose {
+					infoPrintln(r.id, "Error killing:", err)
+				}
 				if err.(syscall.Errno) == syscall.ESRCH { // no such process
 					return
 				}
@@ -258,8 +270,7 @@ var seqCommands = &sync.Mutex{}
 
 // runCommand runs the given Command. All output is passed line-by-line to the
 // stdout channel.
-func (r *Reflex) runCommand(name string, stdout chan<- OutMsg) {
-	command := replaceSubSymbol(r.command, r.subSymbol, name)
+func (r *Reflex) runCommand(command []string, stdout chan<- OutMsg) {
 	cmd := exec.Command(command[0], command[1:]...)
 	r.cmd = cmd
 
@@ -269,7 +280,9 @@ func (r *Reflex) runCommand(name string, stdout chan<- OutMsg) {
 
 	tty, err := pty.Start(cmd)
 	if err != nil {
-		infoPrintln(r.id, err)
+		if verbose {
+			infoPrintln(r.id, "Error running:", err)
+		}
 		return
 	}
 	r.tty = tty
@@ -293,7 +306,9 @@ func (r *Reflex) runCommand(name string, stdout chan<- OutMsg) {
 			stdout <- OutMsg{r.id, scanner.Text()}
 		}
 		if err := scanner.Err(); errors.Is(err, bufio.ErrTooLong) {
-			infoPrintln(r.id, "Error: subprocess emitted a line longer than 100 MB")
+			if verbose {
+				infoPrintln(r.id, "Error: subprocess emitted a line longer than 100 MB")
+			}
 		}
 		// Intentionally ignore other scanner errors. Unfortunately,
 		// the pty returns a read error when the child dies naturally,
@@ -306,8 +321,13 @@ func (r *Reflex) runCommand(name string, stdout chan<- OutMsg) {
 	r.mu.Unlock()
 	go func() {
 		err := cmd.Wait()
+
+		r.mu.Lock()
+		r.running = false
+		r.mu.Unlock()
+
 		if !r.Killed() && err != nil {
-			stdout <- OutMsg{r.id, fmt.Sprintf("(error exit: %s)", err)}
+			stdout <- OutMsg{r.id, fmt.Sprintf("Error exiting: %s", err)}
 		}
 		r.done <- struct{}{}
 
@@ -327,9 +347,12 @@ func (r *Reflex) Start(changes <-chan string) {
 	go r.batch(batched, filtered)
 	go r.runEach(batched)
 	if r.startService {
+		command := replaceSubSymbol(r.command, r.subSymbol, "")
 		// Easy hack to kick off the initial start.
-		infoPrintln(r.id, "Starting service")
-		r.runCommand("", stdout)
+		if verbose || printActions {
+			infoPrintln(r.id, "Run", command)
+		}
+		r.runCommand(command, stdout)
 	}
 }
 

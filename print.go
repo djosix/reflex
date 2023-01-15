@@ -26,11 +26,13 @@ type OutMsg struct {
 	msg      string
 }
 
+const infoPrefix = "(reflex) "
+
 func infoPrintln(id int, args ...interface{}) {
-	stdout <- OutMsg{id, strings.TrimSpace(fmt.Sprintln(args...))}
+	stdout <- OutMsg{id, infoPrefix + strings.TrimSpace(fmt.Sprintln(args...))}
 }
 func infoPrintf(id int, format string, args ...interface{}) {
-	stdout <- OutMsg{id, fmt.Sprintf(format, args...)}
+	stdout <- OutMsg{id, infoPrefix + fmt.Sprintf(format, args...)}
 }
 
 func printMsg(msg OutMsg, writer io.Writer) {

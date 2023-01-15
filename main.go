@@ -19,11 +19,14 @@ const defaultSubSymbol = "{}"
 var (
 	reflexes []*Reflex
 
+	rootDir        string
 	flagConf       string
 	flagSequential bool
 	flagDecoration string
 	decoration     Decoration
 	verbose        bool
+	printEvents    bool
+	printActions   bool
 	globalFlags    = flag.NewFlagSet("", flag.ContinueOnError)
 	globalConfig   = &Config{}
 
@@ -62,14 +65,20 @@ Examples:
 
 func init() {
 	globalFlags.Usage = usage
+	globalFlags.StringVar(&rootDir, "root", ".", `
+			The roor directory to watch.`)
 	globalFlags.StringVarP(&flagConf, "config", "c", "", `
             A configuration file that describes how to run reflex
             (or '-' to read the configuration from stdin).`)
 	globalFlags.BoolVarP(&verbose, "verbose", "v", false, `
             Verbose mode: print out more information about what reflex is doing.`)
+	globalFlags.BoolVarP(&printEvents, "printEvents", "E", false, `
+            Show inotify messages.`)
+	globalFlags.BoolVarP(&printActions, "printActions", "A", false, `
+            Show action messages.`)
 	globalFlags.BoolVarP(&flagSequential, "sequential", "e", false, `
             Don't run multiple commands at the same time.`)
-	globalFlags.StringVarP(&flagDecoration, "decoration", "d", "plain", `
+	globalFlags.StringVarP(&flagDecoration, "decoration", "d", "none", `
             How to decorate command output. Choices: none, plain, fancy.`)
 	globalConfig.registerFlags(globalFlags)
 }
@@ -79,6 +88,7 @@ func anyNonGlobalsRegistered() bool {
 	walkFn := func(f *flag.Flag) {
 		switch f.Name {
 		case "config", "verbose", "sequential", "decoration":
+		case "printEvents", "printActions":
 		default:
 			any = true
 		}
@@ -191,7 +201,7 @@ func main() {
 	for i := range reflexes {
 		broadcastChanges[i] = make(chan string)
 	}
-	go watch(".", watcher, changes, done, reflexes)
+	go watch(rootDir, watcher, changes, done, reflexes)
 	go broadcast(broadcastChanges, changes)
 	go printOutput(stdout, os.Stdout)
 
