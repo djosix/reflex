@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/kballard/go-shellquote"
 )
 
 // A Reflex is a single watch + command to execute.
@@ -194,17 +195,17 @@ func (r *Reflex) runEach(names <-chan string) {
 		if r.startService {
 			if r.Running() {
 				if verbose || printActions {
-					infoPrintln(r.id, "Terminate", command)
+					infoPrintln(r.id, "Terminate", formatCommand(command))
 				}
 				r.terminate()
 			}
 			if verbose || printActions {
-				infoPrintln(r.id, "Run", command)
+				infoPrintln(r.id, "Run", formatCommand(command))
 			}
 			r.runCommand(command, stdout)
 		} else {
 			if verbose || printActions {
-				infoPrintln(r.id, "Run", command)
+				infoPrintln(r.id, "Run", formatCommand(command))
 			}
 			r.runCommand(command, stdout)
 			<-r.done
@@ -264,6 +265,10 @@ func replaceSubSymbol(command []string, subSymbol string, name string) []string 
 		newCommand[i] = replacer.Replace(c)
 	}
 	return newCommand
+}
+
+func formatCommand(command []string) string {
+	return fmt.Sprintf("[%s]", shellquote.Join(command...))
 }
 
 var seqCommands = &sync.Mutex{}
@@ -350,7 +355,7 @@ func (r *Reflex) Start(changes <-chan string) {
 		command := replaceSubSymbol(r.command, r.subSymbol, "")
 		// Easy hack to kick off the initial start.
 		if verbose || printActions {
-			infoPrintln(r.id, "Run", command)
+			infoPrintln(r.id, "Run", formatCommand(command))
 		}
 		r.runCommand(command, stdout)
 	}
